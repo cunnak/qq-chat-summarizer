@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>群聊总结助手</title>
+<style>
+:root{--bg:#f5f6f8;--card:#fff;--pri:#4f6ef7;--txt:#222;--sub:#777;--ok:#2e9e5b;--warn:#d97706;--line:#e5e7eb}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Segoe UI","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--txt);font-size:14px}
+.header{background:var(--card);border-bottom:1px solid var(--line);padding:12px 20px;display:flex;align-items:center;gap:18px;position:sticky;top:0;z-index:10}
+.header h1{font-size:17px}
+.tabs{display:flex;gap:4px;flex-wrap:wrap}
+.tabs button{border:none;background:none;padding:8px 14px;border-radius:8px;cursor:pointer;font-size:14px;color:var(--sub)}
+.tabs button.on{background:var(--pri);color:#fff}
+.wrap{max-width:980px;margin:16px auto;padding:0 14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:14px}
+.card h2{font-size:15px;margin-bottom:12px;color:var(--txt)}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
+.fld{display:flex;flex-direction:column;gap:4px;margin-bottom:10px}
+.fld label{font-size:12px;color:var(--sub)}
+.fld input,.fld select{padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:14px;min-width:180px}
+.fld.sm input{min-width:100px}
+button.act{background:var(--pri);color:#fff;border:none;border-radius:8px;padding:9px 18px;cursor:pointer;font-size:14px}
+button.act.gray{background:#64748b}
+button.act.red{background:#dc2626}
+button.mini{padding:5px 12px;font-size:12px;border-radius:6px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
+.stat{background:linear-gradient(135deg,#eef1ff,#f8faff);border:1px solid var(--line);border-radius:10px;padding:14px}
+.stat .n{font-size:24px;font-weight:600;color:var(--pri)}
+.stat .l{font-size:12px;color:var(--sub);margin-top:2px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line)}
+td input,td select{padding:6px;border:1px solid var(--line);border-radius:6px;width:110px}
+#login{position:fixed;inset:0;background:#1e2433;display:flex;align-items:center;justify-content:center;z-index:99}
+#login .box{background:#fff;border-radius:14px;padding:30px;width:320px}
+.msg{padding:9px 12px;border-radius:8px;margin:8px 0;font-size:13px;display:none}
+.msg.ok{background:#e8f7ee;color:var(--ok);display:block}
+.msg.err{background:#fdecec;color:#c0392b;display:block}
+.msg.info{background:#eef1ff;color:var(--pri);display:block}
+.topic-item{border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:8px;cursor:pointer}
+.topic-item:hover{border-color:var(--pri)}
+.topic-item .t{font-weight:600}
+.topic-item .m{font-size:12px;color:var(--sub);margin-top:4px}
+pre#logs{background:#111827;color:#d1d5db;padding:12px;border-radius:8px;font-size:12px;max-height:420px;overflow:auto;white-space:pre-wrap}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px}
+.badge.closed{background:#e8f7ee;color:var(--ok)}
+.badge.open{background:#fff7e6;color:var(--warn)}
+.badge.discarded{background:#f1f1f1;color:var(--sub)}
+.step{display:none}.step.on{display:block}
+.steps-ind{display:flex;gap:6px;margin-bottom:16px}
+.steps-ind span{flex:1;height:4px;border-radius:2px;background:var(--line)}
+.steps-ind span.on{background:var(--pri)}
+.hint{font-size:12px;color:var(--sub);line-height:1.7}
+.detail-msg{border-left:3px solid var(--line);padding:6px 10px;margin:6px 0;font-size:13px}
+.detail-msg b{color:var(--pri)}
+</style>
+</head>
+<body>
+
+<div id="login" style="display:none">
+  <div class="box">
+    <h2 style="margin-bottom:6px">群聊总结助手</h2>
+    <p class="hint" id="loginHint">请输入控制台密码</p>
+    <div class="fld" style="margin-top:12px"><input type="password" id="pw" placeholder="密码（首次输入即设置）"></div>
+    <button class="act" style="width:100%" onclick="doLogin()">进入</button>
+    <div class="msg" id="loginMsg"></div>
+  </div>
+</div>
+
+<div class="header">
+  <h1>📋 群聊总结助手</h1>
+  <div class="tabs" id="tabs">
+    <button data-t="wizard">初次向导</button>
+    <button data-t="dash" class="on">仪表盘</button>
+    <button data-t="settings">设置</button>
+    <button data-t="topics">话题历史</button>
+    <button data-t="ops">日志与运维</button>
+  </div>
+  <span class="hint" id="connState"></span>
+</div>
+
+<div class="wrap">
+
+<!-- ============ 向导 ============ -->
+<div class="tab" id="tab-wizard" style="display:none">
+  <div class="card">
+    <h2>🚀 初次配置向导</h2>
+    <div class="steps-ind"><span class="on" id="ind1"></span><span id="ind2"></span><span id="ind3"></span><span id="ind4"></span></div>
+
+    <div class="step on" id="step1">
+      <p class="hint" style="margin-bottom:10px">第 1 步 · 连接 QQ 机器人（NapCat）。需要 NapCat 已运行并配置正向 WS。点击测试验证连通性。</p>
+      <div class="row">
+        <div class="fld"><label>NapCat WS 地址</label><input id="w_ws_url" value="ws://127.0.0.1:3001"></div>
+        <div class="fld"><label>访问令牌 (token)</label><input id="w_ws_token" value="123456"></div>
+        <button class="act gray" onclick="testWs('w_')">测试连接</button>
+      </div>
+      <div class="msg" id="w_ws_msg"></div>
+      <button class="act" onclick="saveStep1()">下一步</button>
+    </div>
+
+    <div class="step" id="step2">
+      <p class="hint" style="margin-bottom:10px">第 2 步 · 配置大模型（OpenAI 兼容接口，如 DeepSeek / 阿里百炼 / 智谱）。</p>
+      <div class="fld"><label>运行模式</label>
+        <select id="w_mode">
+          <option value="multimodal">单一多模态模型（推荐，一个模型总结+看图）</option>
+          <option value="text">纯文本模型（不看图，最省）</option>
+          <option value="dual">文本主模型 + 视觉辅助模型（两个模型分工）</option>
+        </select>
+      </div>
+      <div class="row">
+        <div class="fld" style="flex:1"><label>API Key</label><input id="w_key" placeholder="sk-..."></div>
+        <div class="fld" style="flex:1"><label>接口地址 (base_url)</label><input id="w_base" placeholder="https://.../v1"></div>
+        <div class="fld"><label>主模型名</label><input id="w_model" placeholder="如 qwen3.7-flash / deepseek-chat"></div>
+      </div>
+      <div class="row" id="w_dual_row" style="display:none">
+        <div class="fld"><label>视觉辅助模型名</label><input id="w_vmodel" placeholder="如 qwen3-vl-flash"></div>
+      </div>
+      <button class="act gray" onclick="testLlm('w_')">测试模型</button>
+      <div class="msg" id="w_llm_msg"></div>
+      <div style="margin-top:10px"><button class="act gray" onclick="showStep(1)">上一步</button>
+      <button class="act" onclick="saveStep2()">下一步</button></div>
+    </div>
+
+    <div class="step" id="step3">
+      <p class="hint" style="margin-bottom:10px">第 3 步 · 选择要监控的群。总结默认发回本群；存档群可填另一个群号（填 0 不发存档）。</p>
+      <div class="row">
+        <div class="fld"><label>监控群号</label><input id="w_group" placeholder="如 300192392"></div>
+        <div class="fld"><label>总结发到群号（0=发回本群）</label><input id="w_summary_to" placeholder="0"></div>
+        <div class="fld"><label>md 存档发到群号（0=不发）</label><input id="w_archive_to" placeholder="0"></div>
+        <div class="fld"><label>总结风格</label><select id="w_style"><option value="standard">标准</option><option value="brief">简洁</option><option value="detailed">详细</option></select></div>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <div class="fld"><label>每日日报</label><select id="w_report_en"><option value="0">关闭</option><option value="1">开启</option></select></div>
+        <div class="fld sm"><label>日报时间</label><input id="w_report_time" value="23:00"></div>
+        <div class="fld"><label>日报发到群号</label><input id="w_report_to" placeholder="0"></div>
+      </div>
+      <div style="margin-top:10px"><button class="act gray" onclick="showStep(2)">上一步</button>
+      <button class="act" onclick="saveStep3()">完成配置</button></div>
+    </div>
+
+    <div class="step" id="step4">
+      <div class="msg ok" style="display:block">✅ 配置完成！机器人已开始留档监听。可在「设置」里随时修改任何配置。</div>
+      <p class="hint">提示：群里发送「总结一下」可手动触发总结。30 分钟无人说话时自动总结一个话题。</p>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 仪表盘 ============ -->
+<div class="tab" id="tab-dash">
+  <div class="card">
+    <h2>📊 运行统计 <select id="dashDays" style="float:right" onchange="loadDash()"><option value="1">今日</option><option value="7">近7天</option><option value="30">近30天</option></select></h2>
+    <div class="grid" id="dashGrid">加载中...</div>
+  </div>
+</div>
+
+<!-- ============ 设置 ============ -->
+<div class="tab" id="tab-settings" style="display:none">
+  <div class="card">
+    <h2>🤖 大模型</h2>
+    <div class="fld"><label>运行模式</label>
+      <select id="s_mode">
+        <option value="multimodal">单一多模态模型（总结+看图）</option>
+        <option value="text">纯文本模型（不看图）</option>
+        <option value="dual">文本主模型 + 视觉辅助模型</option>
+      </select>
+    </div>
+    <div class="row">
+      <div class="fld" style="flex:1"><label>API Key（显示掩码=不修改）</label><input id="s_key"></div>
+      <div class="fld" style="flex:1"><label>接口地址</label><input id="s_base"></div>
+      <div class="fld"><label>主模型名</label><input id="s_model"></div>
+    </div>
+    <div class="row" id="s_dual_row">
+      <div class="fld"><label>视觉辅助模型名（dual 模式）</label><input id="s_vmodel"></div>
+      <div class="fld" style="flex:1"><label>视觉模型 Key（空=复用主 Key）</label><input id="s_vkey"></div>
+    </div>
+    <div class="row">
+      <div class="fld sm"><label>超时(秒)</label><input id="s_timeout" type="number"></div>
+      <div class="fld sm"><label>输入价(元/百万token)</label><input id="s_pin" type="number" step="0.01"></div>
+      <div class="fld sm"><label>输出价(元/百万token)</label><input id="s_pout" type="number" step="0.01"></div>
+      <button class="act gray" onclick="testLlm('s_')">测试模型</button>
+    </div>
+    <div class="msg" id="s_llm_msg"></div>
+  </div>
+
+  <div class="card">
+    <h2>🔗 QQ 机器人连接</h2>
+    <div class="row">
+      <div class="fld"><label>NapCat WS 地址</label><input id="s_ws_url"></div>
+      <div class="fld"><label>访问令牌</label><input id="s_ws_token"></div>
+      <button class="act gray" onclick="testWs('s_')">测试连接</button>
+    </div>
+    <div class="msg" id="s_ws_msg"></div>
+    <p class="hint">修改 WS 地址后需重启程序生效（见「日志与运维」）。</p>
+  </div>
+
+  <div class="card">
+    <h2>💬 手动触发总结</h2>
+    <div class="row">
+      <div class="fld"><label>触发指令（群聊发送该文字）</label><input id="s_cmd"></div>
+      <div class="fld"><label>权限</label><select id="s_perm"><option value="all">所有人可触发</option><option value="admin">仅管理员</option></select></div>
+      <div class="fld" style="flex:1"><label>管理员QQ号（逗号分隔）</label><input id="s_admins" placeholder="123,456"></div>
+      <div class="fld sm"><label>冷却(秒)</label><input id="s_cooldown" type="number"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>⏱ 话题切分</h2>
+    <div class="row">
+      <div class="fld sm"><label>空闲多少秒算话题结束</label><input id="s_idle" type="number"></div>
+      <div class="fld sm"><label>话题最少消息数</label><input id="s_minmsgs" type="number"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>📰 每日日报</h2>
+    <div class="row">
+      <div class="fld"><label>开关</label><select id="s_rep_en"><option value="1">开启</option><option value="0">关闭</option></select></div>
+      <div class="fld sm"><label>时间</label><input id="s_rep_time"></div>
+      <div class="fld"><label>发到群号</label><input id="s_rep_to" type="number"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>👥 监控群管理</h2>
+    <table id="groupsTable"><thead><tr><th>群号</th><th>监控</th><th>总结发到</th><th>存档发到</th><th>风格</th><th></th></tr></thead><tbody></tbody></table>
+    <button class="act gray mini" style="margin-top:8px" onclick="addGroupRow(0,1,0,'standard')">+ 添加群</button>
+  </div>
+
+  <button class="act" style="width:100%;padding:12px" onclick="saveSettings()">💾 保存全部设置（即时生效）</button>
+  <div class="msg" id="s_save_msg"></div>
+</div>
+
+<!-- ============ 话题历史 ============ -->
+<div class="tab" id="tab-topics" style="display:none">
+  <div class="card">
+    <h2>🗂 话题历史</h2>
+    <div class="row" style="margin-bottom:10px">
+      <div class="fld sm"><label>群号</label><input id="t_gid" placeholder="全部"></div>
+      <div class="fld"><label>状态</label><select id="t_status"><option value="">全部</option><option value="closed">已总结</option><option value="open">进行中</option><option value="discarded">已丢弃</option></select></div>
+      <button class="act gray" onclick="loadTopics(1)">查询</button>
+    </div>
+    <div id="topicList">加载中...</div>
+    <div style="margin-top:10px"><button class="act gray mini" onclick="loadTopics(curPage-1)">上一页</button>
+    <button class="act gray mini" style="margin-left:6px" onclick="loadTopics(curPage+1)">下一页</button></div>
+  </div>
+  <div class="card" id="topicDetail" style="display:none"></div>
+</div>
+
+<!-- ============ 运维 ============ -->
+<div class="tab" id="tab-ops" style="display:none">
+  <div class="card">
+    <h2>🧰 数据管理</h2>
+    <div class="row">
+      <button class="act gray" onclick="doExport('md')">导出 md</button>
+      <button class="act gray" onclick="doExport('html')">导出 html</button>
+      <button class="act gray" onclick="doBackup()">备份数据库</button>
+      <button class="act red" onclick="doClear()">清空数据</button>
+      <button class="act" onclick="doRestart()">重启程序</button>
+    </div>
+    <div class="msg" id="ops_msg"></div>
+    <p class="hint">导出默认覆盖近 7 天；清空数据不可恢复，请先备份。</p>
+  </div>
+  <div class="card">
+    <h2>📜 运行日志 <button class="act gray mini" style="float:right" onclick="loadLogs()">刷新</button></h2>
+    <pre id="logs">点击刷新查看</pre>
+  </div>
+</div>
+
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+let curPage=1, state={};
+
+async function api(url,opt={}){
+  const r=await fetch(url,Object.assign({headers:{'Content-Type':'application/json'}},opt,{credentials:'same-origin'}));
+  if(r.status===401){showLogin();throw new Error('unauthorized');}
+  return r.json();
+}
+function msg(el,cls,text){const e=$(el);e.className='msg '+cls;e.textContent=text;}
+
+/* ---------- 登录 ---------- */
+function showLogin(){$('login').style.display='flex';}
+async function doLogin(){
+  try{
+    const r=await api('/api/login',{method:'POST',body:JSON.stringify({password:$('pw').value})});
+    if(r.ok){$('login').style.display='none';init();}
+  }catch(e){
+    try{const j=await(await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:$('pw').value})})).json();msg('loginMsg',j.error?'err':'ok',j.error||'进入成功');}catch(_){}
+  }
+}
+$('pw').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
+
+/* ---------- 页签 ---------- */
+document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#tabs button').forEach(x=>x.classList.remove('on'));b.classList.add('on');
+  document.querySelectorAll('.tab').forEach(t=>t.style.display='none');
+  $('tab-'+b.dataset.t).style.display='block';
+  if(b.dataset.t==='dash')loadDash();
+  if(b.dataset.t==='topics')loadTopics(1);
+  if(b.dataset.t==='settings')loadSettings();
+});
+
+/* ---------- 初始化 ---------- */
+async function init(){
+  state=await api('/api/state');
+  $('connState').textContent=state.bot_connected?'● 机器人已连接':'○ 机器人未连接';
+  $('loginHint').textContent=state.has_password?'请输入控制台密码':'首次使用：输入的密码将设为控制台密码';
+  if(!state.wizard_done){document.querySelector('[data-t=wizard]').click();}
+  else loadDash();
+}
+
+/* ---------- 向导 ---------- */
+function showStep(n){
+  for(let i=1;i<=4;i++){$('step'+i).classList.toggle('on',i===n);$('ind'+i).classList.toggle('on',i<=n);}
+}
+$('w_mode').onchange=()=>{$('w_dual_row').style.display=$('w_mode').value==='dual'?'flex':'none';};
+async function testWs(p){
+  const r=await api('/api/test-ws',{method:'POST',body:JSON.stringify({ws_url:$(p+'ws_url').value,ws_token:$(p+'ws_token').value})});
+  msg(p+'ws_msg',r.ok?'ok':'err',(r.ok?'✅ ':'❌ ')+r.info);
+}
+async function testLlm(p){
+  const body={api_key:$(p+'key').value,base_url:$(p+'base').value,model:$(p+'model').value};
+  const r=await api('/api/test-llm',{method:'POST',body:JSON.stringify(body)});
+  msg(p+'llm_msg',r.ok?'ok':'err',(r.ok?'✅ ':'❌ ')+r.info);
+}
+async function getCfg(){return await api('/api/config');}
+async function saveStep1(){
+  const c=await getCfg();c.bot={ws_url:$('w_ws_url').value,ws_token:$('w_ws_token').value};
+  await api('/api/config',{method:'POST',body:JSON.stringify(c)});showStep(2);
+}
+async function saveStep2(){
+  const c=await getCfg();
+  c.llm.mode=$('w_mode').value;c.llm.api_key=$('w_key').value;c.llm.base_url=$('w_base').value;
+  c.llm.model=$('w_model').value;c.llm.vision_model=$('w_vmodel').value;
+  await api('/api/config',{method:'POST',body:JSON.stringify(c)});showStep(3);
+}
+async function saveStep3(){
+  const c=await getCfg();
+  const g={group_id:parseInt($('w_group').value)||0,enabled:true,
+    summary_to:parseInt($('w_summary_to').value)||0,archive_to:parseInt($('w_archive_to').value)||0,
+    style:$('w_style').value};
+  c.groups=[g];c.report={enabled:$('w_report_en').value==='1',time:$('w_report_time').value||'23:00',to_group:parseInt($('w_report_to').value)||0};
+  c.wizard_done=true;
+  await api('/api/config',{method:'POST',body:JSON.stringify(c)});
+  showStep(4);init();
+}
+
+/* ---------- 仪表盘 ---------- */
+async function loadDash(){
+  const days=$('dashDays').value;
+  const s=await api('/api/dashboard?days='+days);
+  const t=s.llm_total||{};
+  let cards=[
+    ['消息数',s.messages],['话题数',s.topics],['图片数',s.images],
+    ['LLM调用',t.calls||0],['tokens(入)',(t.tokens_in||0).toLocaleString()],
+    ['tokens(出)',(t.tokens_out||0).toLocaleString()],
+    ['费用估算',t.cost!=null?('¥'+t.cost):'未设价格'],['进行中话题',s.open_topics]];
+  $('dashGrid').innerHTML=cards.map(c=>`<div class="stat"><div class="n">${c[1]}</div><div class="l">${c[0]}</div></div>`).join('');
+}
+
+/* ---------- 设置 ---------- */
+function addGroupRow(gid,en,ar,st){
+  const tb=$('groupsTable').querySelector('tbody');
+  const tr=document.createElement('tr');
+  const styles=state.style_options||{standard:'标准',brief:'简洁',detailed:'详细'};
+  tr.innerHTML=`<td><input class="g_id" type="number" value="${gid}"></td>
+    <td><select class="g_en"><option value="1"${en?' selected':''}>开</option><option value="0"${en?'':' selected'}>关</option></select></td>
+    <td><input class="g_sum" type="number" value="${gid}" placeholder="0=本群"></td>
+    <td><input class="g_arc" type="number" value="${ar}"></td>
+    <td><select class="g_style">${Object.entries(styles).map(([k,v])=>`<option value="${k}"${k===st?' selected':''}>${v}</option>`).join('')}</select></td>
+    <td><button class="act red mini" onclick="this.closest('tr').remove()">删</button></td>`;
+  tb.appendChild(tr);
+}
+async function loadSettings(){
+  const c=await getCfg();state=await api('/api/state');
+  $('s_mode').value=c.llm.mode;$('s_key').value=c.llm.api_key;$('s_base').value=c.llm.base_url;
+  $('s_model').value=c.llm.model;$('s_vmodel').value=c.llm.vision_model;$('s_vkey').value=c.llm.vision_api_key;
+  $('s_timeout').value=c.llm.timeout;$('s_pin').value=c.llm.price_in||0;$('s_pout').value=c.llm.price_out||0;
+  $('s_dual_row').style.display=c.llm.mode==='dual'?'flex':'none';
+  $('s_mode').onchange=()=>{$('s_dual_row').style.display=$('s_mode').value==='dual'?'flex':'none';};
+  $('s_ws_url').value=c.bot.ws_url;$('s_ws_token').value=c.bot.ws_token;
+  $('s_cmd').value=c.trigger.command;$('s_perm').value=c.trigger.permission;
+  $('s_admins').value=(c.trigger.admins||[]).join(',');$('s_cooldown').value=c.trigger.cooldown;
+  $('s_idle').value=c.topic.idle_seconds;$('s_minmsgs').value=c.topic.min_msgs;
+  $('s_rep_en').value=c.report.enabled?'1':'0';$('s_rep_time').value=c.report.time;$('s_rep_to').value=c.report.to_group||0;
+  $('groupsTable').querySelector('tbody').innerHTML='';
+  (c.groups||[]).forEach(g=>addGroupRow(g.group_id,g.enabled,g.archive_to||0,g.style||'standard'));
+}
+async function saveSettings(){
+  const c=await getCfg();
+  c.llm.mode=$('s_mode').value;c.llm.api_key=$('s_key').value;c.llm.base_url=$('s_base').value;
+  c.llm.model=$('s_model').value;c.llm.vision_model=$('s_vmodel').value;c.llm.vision_api_key=$('s_vkey').value;
+  c.llm.timeout=parseInt($('s_timeout').value)||60;c.llm.price_in=parseFloat($('s_pin').value)||0;c.llm.price_out=parseFloat($('s_pout').value)||0;
+  c.bot={ws_url:$('s_ws_url').value,ws_token:$('s_ws_token').value};
+  c.trigger={command:$('s_cmd').value||'总结一下',permission:$('s_perm').value,
+    admins:$('s_admins').value.split(',').map(x=>parseInt(x.trim())).filter(x=>x),
+    cooldown:parseInt($('s_cooldown').value)||60};
+  c.topic={idle_seconds:parseInt($('s_idle').value)||1800,min_msgs:parseInt($('s_minmsgs').value)||3,max_msgs:c.topic.max_msgs||80};
+  c.report={enabled:$('s_rep_en').value==='1',time:$('s_rep_time').value||'23:00',to_group:parseInt($('s_rep_to').value)||0};
+  c.groups=[...$('groupsTable').querySelectorAll('tbody tr')].map(tr=>({
+    group_id:parseInt(tr.querySelector('.g_id').value)||0,
+    enabled:tr.querySelector('.g_en').value==='1',
+    summary_to:parseInt(tr.querySelector('.g_sum').value)||0,
+    archive_to:parseInt(tr.querySelector('.g_arc').value)||0,
+    style:tr.querySelector('.g_style').value})).filter(g=>g.group_id);
+  const r=await api('/api/config',{method:'POST',body:JSON.stringify(c)});
+  msg('s_save_msg','ok','✅ 已保存，即时生效'+(r.restart_hint&&$('s_ws_url').value!==c.bot.ws_url?'（WS地址已变，请重启程序）':''));
+  init();
+}
+
+/* ---------- 话题 ---------- */
+async function loadTopics(page){
+  if(page<1)page=1;curPage=page;
+  let url=`/api/topics?page=${page}`;
+  if($('t_gid').value)url+='&group_id='+$('t_gid').value;
+  if($('t_status').value)url+='&status='+$('t_status').value;
+  const r=await api(url);
+  if(!r.topics||!r.topics.length){$('topicList').innerHTML='<p class="hint">暂无话题记录</p>';return;}
+  $('topicList').innerHTML=r.topics.map(t=>`<div class="topic-item" onclick="showTopic(${t.id})">
+    <div class="t">${t.title||'(未命名)'} <span class="badge ${t.status}">${{closed:'已总结',open:'进行中',discarded:'已丢弃'}[t.status]||t.status}</span></div>
+    <div class="m">群${t.group_id} · ${new Date(t.start_ts*1000).toLocaleString()} · ${t.msg_count}条 · ${(t.participants||[]).length}人</div>
+  </div>`).join('');
+}
+async function showTopic(id){
+  const r=await api('/api/topic/'+id);
+  const t=r.topic;
+  $('topicDetail').style.display='block';
+  $('topicDetail').innerHTML=`<h2>${t.title}</h2>
+    <p class="hint" style="margin:6px 0">群${t.group_id} · ${new Date(t.start_ts*1000).toLocaleString()} ~ ${new Date(t.last_ts*1000).toLocaleString()} · ${t.msg_count}条 · 参与：${(t.participants||[]).join('、')}</p>
+    <ul style="margin:10px 0 10px 20px">${(t.points||[]).map(p=>`<li>${p}</li>`).join('')}</ul>
+    <p style="margin:10px 0">${t.summary||''}</p>
+    <button class="act gray mini" onclick="regenTopic(${t.id})">🔄 重新生成总结</button>
+    <h2 style="margin-top:16px">原始消息</h2>
+    <div style="max-height:300px;overflow:auto">${r.messages.map(m=>`<div class="detail-msg"><b>${m.nickname}</b> ${new Date(m.ts*1000).toLocaleTimeString()}：${m.text||'[图片]'}${m.image_urls&&m.image_urls.length?` [附${m.image_urls.length}张图]`:''}</div>`).join('')}</div>`;
+}
+async function regenTopic(id){
+  const r=await api(`/api/topic/${id}/regenerate`,{method:'POST'});
+  if(r.ok)showTopic(id);else alert('生成失败');
+}
+
+/* ---------- 运维 ---------- */
+async function loadLogs(){
+  const r=await api('/api/logs?lines=300');
+  $('logs').textContent=(r.logs||[]).join('\n')||'（暂无日志）';
+}
+async function doExport(fmt){
+  const r=await fetch('/api/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({format:fmt,days:7}),credentials:'same-origin'});
+  const blob=await r.blob();const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);a.download='topics_export.'+fmt;a.click();
+  msg('ops_msg','ok','✅ 导出已下载');
+}
+async function doBackup(){
+  const r=await api('/api/backup',{method:'POST'});msg('ops_msg','ok','✅ 已备份到 '+r.path);
+}
+async function doClear(){
+  if(!confirm('确定清空全部留档数据？此操作不可恢复，建议先备份！'))return;
+  await api('/api/clear-data',{method:'POST',body:JSON.stringify({})});msg('ops_msg','ok','✅ 已清空');
+}
+async function doRestart(){
+  if(!confirm('重启程序？（约 5 秒后自动恢复）'))return;
+  await api('/api/restart',{method:'POST'});msg('ops_msg','info','正在重启...');
+}
+
+/* ---------- 启动 ---------- */
+init().catch(()=>showLogin());
+</script>
+</body>
+</html>

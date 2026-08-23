@@ -1,0 +1,21 @@
+{
+  "wizard_done": false,
+  "web": { "password": "", "port": 8787 },
+  "llm": {
+    "mode": "multimodal",
+    "api_key": "",
+    "base_url": "",
+    "model": "",
+    "vision_model": "",
+    "vision_api_key": "",
+    "vision_base_url": "",
+    "timeout": 60,
+    "price_in": 0.0,
+    "price_out": 0.0
+  },
+  "bot": { "ws_url": "ws://127.0.0.1:3001", "ws_token": "123456" },
+  "topic": { "idle_seconds": 1800, "min_msgs": 3, "max_msgs": 80 },
+  "trigger": { "command": "总结一下", "permission": "all", "admins": [], "cooldown": 60 },
+  "report": { "enabled": false, "time": "23:00", "to_group": 0 },
+  "groups": []
+}
