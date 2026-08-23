@@ -5,6 +5,41 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>群聊总结助手</title>
 <style>
+.offline-mask{position:fixed;inset:0;background:#0f172a;z-index:99999;display:none;align-items:center;justify-content:center;padding:20px}
+.offline-mask.show{display:flex}
+.offline-card{max-width:560px;background:#1e293b;border-radius:12px;padding:32px;color:#e2e8f0;box-shadow:0 10px 40px rgba(0,0,0,.4)}
+.offline-card h1{color:#fbbf24;margin:0 0 12px;font-size:22px}
+.offline-card code{background:#0f172a;padding:2px 8px;border-radius:4px;color:#a5f3fc;font-size:13px}
+.offline-card .badge{display:inline-block;background:#dc2626;color:#fff;font-size:11px;padding:3px 8px;border-radius:6px;margin-bottom:12px}
+.offline-card ol{line-height:1.9;padding-left:20px}
+.offline-card .warn{color:#fbbf24;font-size:13px;margin-top:14px;padding:10px;background:#422006;border-left:3px solid #fbbf24;border-radius:4px}
+</style>
+<script>
+(async function(){
+  // 探测后端是否在 127.0.0.1:8787 监听; 离线（file://双击/服务未启）则显示提示
+  try {
+    const r = await fetch('/api/state', {cache:'no-store'});
+    if (r.ok) return; // 服务在线, 正常显示
+  } catch(e) {}
+  // 服务不可达 — 覆盖整个页面
+  document.body.innerHTML = `
+<div class="offline-card">
+  <span class="badge">⚠ 检测到错误打开方式</span>
+  <h1>请先启动 QQChatSummarizer</h1>
+  <p>你直接打开了 <code>webui.html</code>，但背后的程序没在运行，按钮自然没反应。</p>
+  <p>✅ <b>正确做法</b>：找到 <code>QQChatSummarizer.exe</code> 双击它，浏览器会自动打开此页。</p>
+  <ol>
+    <li>关闭当前页</li>
+    <li>双击 <code>QQChatSummarizer.exe</code></li>
+    <li>浏览器会自动弹出（本窗口已打开）</li>
+  </ol>
+  <p style="margin-top:12px">如果浏览器没自动弹出，手动访问 <a href="http://127.0.0.1:8787" style="color:#60a5fa">http://127.0.0.1:8787</a></p>
+  <p class="warn">💡 记住：永远双击 <code>QQChatSummarizer.exe</code>，不要双击 <code>webui.html</code>。后者只是程序零件，离了 exe 就是空壳。</p>
+</div>`;
+  document.body.style.cssText='margin:0;background:#0f172a;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px';
+})();
+</script>
+<style>
 :root{--bg:#f5f6f8;--card:#fff;--pri:#4f6ef7;--txt:#222;--sub:#777;--ok:#2e9e5b;--warn:#d97706;--line:#e5e7eb}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:"Segoe UI","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--txt);font-size:14px}
@@ -47,6 +82,9 @@ pre#logs{background:#111827;color:#d1d5db;padding:12px;border-radius:8px;font-si
 .badge.closed{background:#e8f7ee;color:var(--ok)}
 .badge.open{background:#fff7e6;color:var(--warn)}
 .badge.discarded{background:#f1f1f1;color:var(--sub)}
+.badge.hi{background:#fde8e8;color:#c0392b}
+.badge.mid{background:#e8f0fd;color:#2b6cb0}
+.badge.neg{background:#f1f1f1;color:#888}
 .step{display:none}.step.on{display:block}
 .steps-ind{display:flex;gap:6px;margin-bottom:16px}
 .steps-ind span{flex:1;height:4px;border-radius:2px;background:var(--line)}
@@ -222,6 +260,17 @@ pre#logs{background:#111827;color:#d1d5db;padding:12px;border-radius:8px;font-si
   </div>
 
   <div class="card">
+    <h2>🎯 兴趣度打分</h2>
+    <p class="hint">开启后，每个话题总结时会让 AI 按你的兴趣关键词打分（0-100），高分话题可自动推送提醒，历史页可按分数排序。</p>
+    <div class="row">
+      <div class="fld"><label>开关</label><select id="s_int_en"><option value="1">开启</option><option value="0">关闭</option></select></div>
+      <div class="fld" style="flex:2"><label>兴趣关键词（逗号分隔）</label><input id="s_int_kws" placeholder="政策,房价,AI,经济"></div>
+      <div class="fld"><label>推送阈值（0=不推送）</label><input id="s_int_push" type="number" min="0" max="100"></div>
+    </div>
+    <p class="hint">推送：打分 ≥ 阈值时，自动在群里追加一条「🔥 高兴趣话题提醒」。</p>
+  </div>
+
+  <div class="card">
     <h2>👥 监控群管理</h2>
     <table id="groupsTable"><thead><tr><th>群号</th><th>监控</th><th>总结发到</th><th>存档发到</th><th>风格</th><th></th></tr></thead><tbody></tbody></table>
     <button class="act gray mini" style="margin-top:8px" onclick="addGroupRow(0,1,0,'standard')">+ 添加群</button>
@@ -238,6 +287,7 @@ pre#logs{background:#111827;color:#d1d5db;padding:12px;border-radius:8px;font-si
     <div class="row" style="margin-bottom:10px">
       <div class="fld sm"><label>群号</label><input id="t_gid" placeholder="全部"></div>
       <div class="fld"><label>状态</label><select id="t_status"><option value="">全部</option><option value="closed">已总结</option><option value="open">进行中</option><option value="discarded">已丢弃</option></select></div>
+      <div class="fld"><label>排序</label><select id="t_sort" onchange="loadTopics(1)"><option value="time">时间倒序</option><option value="score">兴趣分优先</option></select></div>
       <button class="act gray" onclick="loadTopics(1)">查询</button>
     </div>
     <div id="topicList">加载中...</div>
@@ -385,6 +435,9 @@ async function loadSettings(){
   $('s_admins').value=(c.trigger.admins||[]).join(',');$('s_cooldown').value=c.trigger.cooldown;
   $('s_idle').value=c.topic.idle_seconds;$('s_minmsgs').value=c.topic.min_msgs;
   $('s_rep_en').value=c.report.enabled?'1':'0';$('s_rep_time').value=c.report.time;$('s_rep_to').value=c.report.to_group||0;
+  $('s_int_en').value=c.interest&&c.interest.enabled?'1':'0';
+  $('s_int_kws').value=(c.interest&&c.interest.keywords||[]).join(',');
+  $('s_int_push').value=c.interest&&c.interest.push_threshold||0;
   $('groupsTable').querySelector('tbody').innerHTML='';
   (c.groups||[]).forEach(g=>addGroupRow(g.group_id,g.enabled,g.archive_to||0,g.style||'standard'));
 }
@@ -399,6 +452,9 @@ async function saveSettings(){
     cooldown:parseInt($('s_cooldown').value)||60};
   c.topic={idle_seconds:parseInt($('s_idle').value)||1800,min_msgs:parseInt($('s_minmsgs').value)||3,max_msgs:c.topic.max_msgs||80};
   c.report={enabled:$('s_rep_en').value==='1',time:$('s_rep_time').value||'23:00',to_group:parseInt($('s_rep_to').value)||0};
+  c.interest={enabled:$('s_int_en').value==='1',
+    keywords:$('s_int_kws').value.split(/[,，]/).map(x=>x.trim()).filter(Boolean),
+    push_threshold:parseInt($('s_int_push').value)||0};
   c.groups=[...$('groupsTable').querySelectorAll('tbody tr')].map(tr=>({
     group_id:parseInt(tr.querySelector('.g_id').value)||0,
     enabled:tr.querySelector('.g_en').value==='1',
@@ -416,24 +472,46 @@ async function loadTopics(page){
   let url=`/api/topics?page=${page}`;
   if($('t_gid').value)url+='&group_id='+$('t_gid').value;
   if($('t_status').value)url+='&status='+$('t_status').value;
+  if($('t_sort').value)url+='&sort='+$('t_sort').value;
   const r=await api(url);
   if(!r.topics||!r.topics.length){$('topicList').innerHTML='<p class="hint">暂无话题记录</p>';return;}
-  $('topicList').innerHTML=r.topics.map(t=>`<div class="topic-item" onclick="showTopic(${t.id})">
-    <div class="t">${t.title||'(未命名)'} <span class="badge ${t.status}">${{closed:'已总结',open:'进行中',discarded:'已丢弃'}[t.status]||t.status}</span></div>
+  $('topicList').innerHTML=r.topics.map(t=>{
+    const badge=(t.status==='closed'&&t.interest_score!=null)
+      ?`<span class="badge ${t.interest_score>=70?'hi':t.interest_score<0?'neg':'mid'}" style="margin-left:6px">🎯${Math.round(t.interest_score)}</span>`:'';
+    return `<div class="topic-item" onclick="showTopic(${t.id})">
+    <div class="t">${t.title||'(未命名)'} <span class="badge ${t.status}">${{closed:'已总结',open:'进行中',discarded:'已丢弃'}[t.status]||t.status}</span>${badge}</div>
     <div class="m">群${t.group_id} · ${new Date(t.start_ts*1000).toLocaleString()} · ${t.msg_count}条 · ${(t.participants||[]).length}人</div>
-  </div>`).join('');
+  </div>`}).join('');
 }
 async function showTopic(id){
   const r=await api('/api/topic/'+id);
   const t=r.topic;
+  const sc=(t.interest_score!=null)?`<div class="card" style="margin:10px 0;padding:12px">
+    🎯 <b>兴趣度 ${Math.round(t.interest_score)}/100</b>
+    ${t.interest_reason?`<span class="hint" style="margin-left:8px">${t.interest_reason}</span>`:''}
+    <div style="margin-top:8px">
+      <button class="act gray mini" onclick="scoreTopic(${t.id})">🎯 重新打分</button>
+      <button class="act red mini" style="margin-left:6px" onclick="dislikeTopic(${t.id})">👎 不感兴趣</button>
+    </div></div>`:'';
   $('topicDetail').style.display='block';
   $('topicDetail').innerHTML=`<h2>${t.title}</h2>
     <p class="hint" style="margin:6px 0">群${t.group_id} · ${new Date(t.start_ts*1000).toLocaleString()} ~ ${new Date(t.last_ts*1000).toLocaleString()} · ${t.msg_count}条 · 参与：${(t.participants||[]).join('、')}</p>
+    ${sc}
     <ul style="margin:10px 0 10px 20px">${(t.points||[]).map(p=>`<li>${p}</li>`).join('')}</ul>
     <p style="margin:10px 0">${t.summary||''}</p>
     <button class="act gray mini" onclick="regenTopic(${t.id})">🔄 重新生成总结</button>
     <h2 style="margin-top:16px">原始消息</h2>
     <div style="max-height:300px;overflow:auto">${r.messages.map(m=>`<div class="detail-msg"><b>${m.nickname}</b> ${new Date(m.ts*1000).toLocaleTimeString()}：${m.text||'[图片]'}${m.image_urls&&m.image_urls.length?` [附${m.image_urls.length}张图]`:''}</div>`).join('')}</div>`;
+}
+async function scoreTopic(id){
+  const r=await api(`/api/topic/${id}/score`,{method:'POST'});
+  if(r.ok){alert(`打分完成：${r.score}/100 — ${r.reason}`);showTopic(id);}
+  else alert(r.error||'打分失败');
+}
+async function dislikeTopic(id){
+  const r=await api(`/api/topic/${id}/dislike`,{method:'POST'});
+  if(r.ok){alert(`已标记不感兴趣（${r.score}分）`);showTopic(id);}
+  else alert(r.error||'操作失败');
 }
 async function regenTopic(id){
   const r=await api(`/api/topic/${id}/regenerate`,{method:'POST'});

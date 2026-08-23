@@ -44,6 +44,19 @@ class MockLLM:
     def describe_images(self, urls):
         return {u: "（图片内容未识别）" for u in urls}
 
+    def score_topic(self, title, points, summary, keywords):
+        """兴趣打分: 关键词命中数 -> 0-100 分(无关键词=None)"""
+        if not keywords:
+            return None
+        kws = [k for k in keywords if k]
+        text = (title or "") + " " + (summary or "") + " " + " ".join(points or [])
+        hit = sum(1 for k in kws if k in text)
+        if not hit:
+            return {"score": 0, "reason": "与兴趣关键词无直接关联"}
+        score = min(100, 40 + hit * 15)
+        hit_kws = "、".join(k for k in kws if k in text)
+        return {"score": score, "reason": f"命中关键词: {hit_kws}"}
+
 
 class OpenAICompatLLM:
     def __init__(self, llm_cfg: dict):
@@ -149,6 +162,35 @@ class OpenAICompatLLM:
         result = _parse_llm_json(content, len(messages))
         result["_tokens_in_est"] = total_in
         return result
+
+    # ------------------------- 兴趣度打分 -------------------------
+    def score_topic(self, title, points, summary, keywords):
+        """基于兴趣关键词对话题打分(0-100)并给出理由。无关键词返回 None。"""
+        if not keywords:
+            return None
+        kws = [str(k).strip() for k in keywords if str(k).strip()]
+        if not kws:
+            return None
+        pts = "；".join(points or [])
+        prompt = (
+            "你是兴趣匹配评估器。用户对以下关键词感兴趣: " + "、".join(kws) + "。\n"
+            "下面是群聊的一个话题总结，请评估该话题对用户的兴趣匹配度:\n"
+            f"标题: {title}\n要点: {pts}\n总结: {(summary or '')[:300]}\n"
+            "打分标准: 90-100=高度契合用户兴趣(核心主题就是关键词所指), "
+            "70-89=明显相关(大量讨论关键词相关内容), 40-69=部分相关(提及但非主题), "
+            "0-39=基本无关。\n"
+            '只输出JSON: {"score": 0-100整数, "reason": "不超过30字的中文理由"}')
+        try:
+            content = self._chat([{"role": "user", "content": prompt}],
+                                 max_tokens=200, kind="interest")
+            m = re.search(r"\{[\s\S]*\}", content or "")
+            if not m:
+                return None
+            d = json.loads(m.group(0))
+            score = max(0, min(100, int(float(d.get("score", 0)))))
+            return {"score": score, "reason": str(d.get("reason", ""))[:60]}
+        except Exception:
+            return None            # 打分失败不阻断总结
 
     # ------------------------- 日报 -------------------------
     def daily_report(self, topic_rows):

@@ -24,3 +24,4 @@ tests/test_md/
 # 一次性发布产物(不入库)
 .token
 deploy_github.py
+build_v11/

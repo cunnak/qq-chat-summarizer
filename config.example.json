@@ -17,5 +17,6 @@
   "topic": { "idle_seconds": 1800, "min_msgs": 3, "max_msgs": 80 },
   "trigger": { "command": "总结一下", "permission": "all", "admins": [], "cooldown": 60 },
   "report": { "enabled": false, "time": "23:00", "to_group": 0 },
+  "interest": { "enabled": false, "keywords": [], "push_threshold": 0 },
   "groups": []
 }

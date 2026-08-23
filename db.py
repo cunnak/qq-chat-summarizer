@@ -56,6 +56,8 @@ def init():
             points TEXT DEFAULT '[]',
             summary TEXT DEFAULT '',
             style TEXT DEFAULT 'standard',
+            interest_score REAL DEFAULT NULL,
+            interest_reason TEXT DEFAULT '',
             closed_ts INTEGER DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_topic_g ON topics(group_id, status);
@@ -69,6 +71,12 @@ def init():
             tokens_out INTEGER DEFAULT 0
         );
         """)
+        # 旧库迁移: 补 interest 列(已存在则跳过)
+        cols = {r["name"] for r in c.execute("PRAGMA table_info(topics)").fetchall()}
+        if "interest_score" not in cols:
+            c.execute("ALTER TABLE topics ADD COLUMN interest_score REAL DEFAULT NULL")
+        if "interest_reason" not in cols:
+            c.execute("ALTER TABLE topics ADD COLUMN interest_reason TEXT DEFAULT ''")
         c.commit()
 
 
@@ -135,13 +143,23 @@ def save_summary(topic_id, title, points, summary, style):
         c.commit()
 
 
+def save_interest(topic_id, score, reason=""):
+    """写入兴趣度打分(score 可为负=用户标记不感兴趣)"""
+    with _lock:
+        c = get_conn()
+        c.execute("UPDATE topics SET interest_score=?, interest_reason=? WHERE id=?",
+                  (float(score), (reason or "")[:200], topic_id))
+        c.commit()
+
+
 def get_topic(topic_id):
     with _lock:
         r = get_conn().execute("SELECT * FROM topics WHERE id=?", (topic_id,)).fetchone()
         return dict(r) if r else None
 
 
-def list_topics(group_id=None, status=None, limit=200, offset=0, since=None):
+def list_topics(group_id=None, status=None, limit=200, offset=0, since=None, sort="time"):
+    """话题列表. sort: time=按时间倒序 | score=按兴趣分倒序(未打分垫底)"""
     with _lock:
         sql, args = "SELECT * FROM topics WHERE 1=1", []
         if group_id:
@@ -150,7 +168,11 @@ def list_topics(group_id=None, status=None, limit=200, offset=0, since=None):
             sql += " AND status=?"; args.append(status)
         if since:
             sql += " AND closed_ts>=?"; args.append(since)
-        sql += " ORDER BY id DESC LIMIT ? OFFSET ?"
+        if sort == "score":
+            sql += " ORDER BY (interest_score IS NULL), interest_score DESC, id DESC"
+        else:
+            sql += " ORDER BY id DESC"
+        sql += " LIMIT ? OFFSET ?"
         args += [limit, offset]
         return [dict(r) for r in get_conn().execute(sql, args).fetchall()]
 

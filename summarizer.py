@@ -99,11 +99,22 @@ def summarize_topic(group_id, topic_id, st=None):
         result = client.summarize(messages, style)
         db.save_summary(topic_id, result["title"], result["points"], result["summary"], style)
         log(f"[总结完成] 群{group_id} 话题#{topic_id}: {result['title']}")
+        # 兴趣度打分(配置开启时)
+        score_info = score_topic(topic_id, result)
         # 发回讨论群
         summary_to = int(gc.get("summary_to") or group_id)
         if summary_to:
-            text = _summary_text(result, t, group_id)
+            text = _summary_text(result, t, group_id, score_info)
             _send_group(summary_to, text)
+        # 高兴趣话题推送(打分>=阈值 且 不是发回群本身)
+        if score_info and summary_to:
+            threshold = int(config.get()["interest"].get("push_threshold") or 0)
+            if threshold > 0 and score_info["score"] >= threshold:
+                push_text = (f"🔥 高兴趣话题提醒：{result['title']}\n"
+                             f"兴趣度 {score_info['score']}/100 · {score_info['reason']}\n"
+                             f"完整总结见上方话题总结")
+                _send_group(summary_to, push_text)
+                log(f"[兴趣推送] 话题#{topic_id} 分数{score_info['score']}>=阈值{threshold}")
         # md 存档
         md = _build_md(result, t, messages, group_id)
         archive_to = int(gc.get("archive_to") or 0)
@@ -116,13 +127,40 @@ def summarize_topic(group_id, topic_id, st=None):
         return None
 
 
-def _summary_text(result, t, group_id):
+def score_topic(topic_id, result=None):
+    """兴趣度打分并入库; 返回 {"score", "reason"} 或 None(未启用/无关键词/失败)"""
+    try:
+        interest = config.get()["interest"]
+        if not interest.get("enabled"):
+            return None
+        kws = interest.get("keywords") or []
+        if not kws:
+            return None
+        if result is None:
+            t = db.get_topic(topic_id) or {}
+            result = {"title": t.get("title", ""),
+                      "points": json.loads(t.get("points") or "[]"),
+                      "summary": t.get("summary", "")}
+        client = llm.get_client()
+        info = client.score_topic(result["title"], result["points"], result["summary"], kws)
+        if info:
+            db.save_interest(topic_id, info["score"], info["reason"])
+            log(f"[兴趣打分] 话题#{topic_id}: {info['score']}分 ({info['reason']})")
+        return info
+    except Exception as e:
+        log(f"[兴趣打分失败] 话题#{topic_id}: {e}")
+        return None
+
+
+def _summary_text(result, t, group_id, score_info=None):
     pts = "\n".join(f"• {p}" for p in result["points"])
     start = time.strftime("%H:%M", time.localtime(t["start_ts"]))
     end = time.strftime("%H:%M", time.localtime(t["last_ts"]))
     names = json.loads(t["participants"] or "[]")
     head = (f"📋 话题总结：{result['title']}\n"
             f"⏱ {start}~{end} | {t['msg_count']}条 | {len(names)}人参与\n")
+    if score_info:
+        head += f"🎯 兴趣度 {score_info['score']}/100（{score_info['reason']}）\n"
     body = (f"\n{pts}\n" if pts else "") + f"\n{result['summary']}"
     return head + body
 

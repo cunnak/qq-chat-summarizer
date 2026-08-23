@@ -255,6 +255,95 @@ r = client_http.get("/api/dashboard?days=1").get_json()
 assert r["messages"] >= 5 and r["llm_total"]["calls"] >= 1
 ok("话题列表+仪表盘统计")
 
+# ---------------- 7. 兴趣度打分 ----------------
+print("=== 7. 兴趣度打分 ===")
+# 重置 LLM 为 mock(第6部分 key 哨兵测试留下了假 key, 会导致打分走真实 HTTP)
+c = cfg_mod.load()
+c["llm"]["api_key"] = ""; c["llm"]["base_url"] = ""; c["llm"]["model"] = ""
+cfg_mod.save(c)
+assert isinstance(llm_mod.get_client(), llm_mod.MockLLM)
+
+c = cfg_mod.load()
+assert "interest" in c and c["interest"]["enabled"] is False
+ok("默认配置含 interest 块")
+
+# MockLLM 启发式打分
+mock = llm_mod.MockLLM()
+s1 = mock.score_topic("房价讨论", ["稳"], "利率降了", ["房价"])
+assert s1 is not None and 0 <= s1["score"] <= 100 and s1["reason"]
+s2 = mock.score_topic("天气好", ["稳"], "晴", [])
+assert s2 is None                       # 无关键词 -> None
+ok("MockLLM 兴趣打分(命中/空关键词)")
+
+# OpenAI 客户端打分(打桩): 命中关键词 -> 高分 + reason
+score_cap = {}
+def fake_score_post(url, headers=None, json=None, timeout=None):
+    score_cap["model"] = json["model"]
+    class R:
+        status_code = 200
+        def raise_for_status(self): pass
+        def json(self):
+            return {"choices": [{"message": {"content": '{"score": 88, "reason": "核心讨论房价政策"}'}}],
+                    "usage": {"prompt_tokens": 20, "completion_tokens": 8}}
+    return R()
+import llm as llm_mod2
+oc = llm_mod2.OpenAICompatLLM({"mode": "text", "api_key": "k", "base_url": "https://x/v1", "model": "m1"})
+oc._requests = type("M", (), {"post": staticmethod(fake_score_post)})()
+s3 = oc.score_topic("房价政策", ["利率"], "限购取消", ["房价", "政策"])
+assert s3 == {"score": 88, "reason": "核心讨论房价政策"}
+s4 = oc.score_topic("随便", ["利率"], "嗯", [])
+assert s4 is None
+ok("OpenAI 客户端兴趣打分(打桩, 高命中)")
+
+# 通过 API 开启兴趣打分并保存
+r = client_http.post("/api/config", json={"interest": {"enabled": True,
+                                                       "keywords": ["房价", "政策"],
+                                                       "push_threshold": 70}})
+assert r.get_json()["ok"]
+c = cfg_mod.load()
+assert c["interest"]["enabled"] and c["interest"]["keywords"] == ["房价", "政策"]
+ok("控制台保存兴趣配置")
+
+# 新话题触发自动打分(用含关键词的消息)
+ev(111, "张三", "房价又要涨了吗", T + 8000)
+ev(222, "李四", "政策出来了", T + 8001)
+ev(111, "张三", "看看", T + 8002)
+ev(222, "李四", "讨论讨论", T + 8003)
+sum_mod.check_idle(now=T + 8003 + 1801)
+rows = db_mod.list_topics(group_id=999)
+scored = [t for t in rows if t["interest_score"] is not None]
+assert scored, "话题应有兴趣分(MockLLM 命中关键词)"
+assert scored[0]["interest_reason"], "应有打分理由"
+ok("话题总结后自动兴趣打分并入库")
+
+# 负向反馈 API(dislike -> 分数置负)
+tid = scored[0]["id"]
+r = client_http.post(f"/api/topic/{tid}/dislike")
+assert r.get_json()["ok"]
+t = db_mod.get_topic(tid)
+assert t["interest_score"] < 0
+assert "不感兴趣" in (t["interest_reason"] or "")
+ok("负向反馈: 标记不感兴趣 -> 分数置负")
+
+# 手动重打分 API
+r = client_http.post(f"/api/topic/{tid}/score")
+assert r.get_json()["ok"]
+t = db_mod.get_topic(tid)
+assert t["interest_score"] >= 0
+ok("手动重新打分 API")
+
+# 按分数排序: 高分话题排前面, 未打分垫底
+ev(111, "张三", "随便聊聊", T + 9000)
+ev(222, "李四", "嗯嗯", T + 9001)
+ev(111, "张三", "好吧", T + 9002)
+ev(222, "李四", "好的", T + 9003)
+sum_mod.check_idle(now=T + 9003 + 1801)
+sorted_rows = db_mod.list_topics(group_id=999, sort="score")
+scores = [t["interest_score"] for t in sorted_rows]
+assert all((scores[i] is None or scores[i + 1] is None or scores[i] >= scores[i + 1])
+           for i in range(len(scores) - 1))
+ok("按兴趣分排序(高分优先,未打分垫底)")
+
 print()
 print(f">>> 全部通过: {len(passed)} 项")
 for p in passed:

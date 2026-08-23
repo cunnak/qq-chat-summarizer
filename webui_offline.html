@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>群聊总结助手 — 请先启动程序</title>
+<style>
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+         background:#0f172a; color:#e2e8f0; display:flex; align-items:center; justify-content:center;
+         min-height:100vh; padding:20px; }
+  .card { max-width:560px; background:#1e293b; border-radius:12px; padding:32px; box-shadow:0 10px 40px rgba(0,0,0,.4); }
+  h1 { color:#fbbf24; margin:0 0 16px; font-size:24px; }
+  .badge { display:inline-block; background:#dc2626; color:#fff; font-size:12px; padding:4px 10px;
+           border-radius:6px; margin-bottom:16px; }
+  p { line-height:1.6; margin:8px 0; }
+  code { background:#0f172a; padding:2px 8px; border-radius:4px; color:#a5f3fc; font-size:14px; }
+  .steps { background:#0f172a; border-radius:8px; padding:16px; margin:16px 0; }
+  .steps ol { margin:8px 0; padding-left:24px; line-height:1.8; }
+  .btn { display:inline-block; margin-top:12px; background:#3b82f6; color:#fff; text-decoration:none;
+         padding:10px 20px; border-radius:6px; font-weight:500; }
+  .btn:hover { background:#2563eb; }
+  .warn { color:#fbbf24; font-size:14px; margin-top:16px; padding:12px; background:#422006;
+          border-left:3px solid #fbbf24; border-radius:4px; }
+  kbd { background:#334155; padding:2px 6px; border-radius:4px; font-family:ui-monospace,monospace; }
+</style>
+</head>
+<body>
+<div class="card">
+  <span class="badge">⚠ 检测到错误打开方式</span>
+  <h1>请先启动程序</h1>
+  <p>你直接双击了 <code>webui.html</code>，这不是正确用法——浏览器加载了静态页面，但背后的服务没运行，所以按钮点击没反应。</p>
+
+  <div class="steps">
+    <p style="margin:0 0 8px;color:#94a3b8;font-size:13px;">✅ 正确步骤</p>
+    <ol>
+      <li>找到 <code>QQChatSummarizer.exe</code>（在 dist 目录下）</li>
+      <li><b>双击运行</b>它（不是 webui.html）</li>
+      <li>程序会<b>自动弹出浏览器</b>打开控制台</li>
+      <li>首次会进入「设置向导」；已配过的会直接显示登录页</li>
+    </ol>
+  </div>
+
+  <p>如果浏览器没自动弹出，手动访问：<br>
+     <a href="http://127.0.0.1:8787" class="btn" style="color:#fff;">👉 打开 http://127.0.0.1:8787</a></p>
+
+  <p class="warn">
+    <b>💡 记住：</b>永远双击 <code>QQChatSummarizer.exe</code>，不要双击 <code>webui.html</code>。
+    后者只是程序的零件，离了 exe 就是个空壳。
+  </p>
+</div>
+</body>
+</html>

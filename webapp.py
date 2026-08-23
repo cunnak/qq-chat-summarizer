@@ -110,7 +110,7 @@ def api_set_config():
         v = llm_new.get(field)
         if v is not None and "•" in str(v):
             llm_new[field] = cfg["llm"].get(field, "")
-    for k in ("web", "llm", "bot", "topic", "trigger", "report"):
+    for k in ("web", "llm", "bot", "topic", "trigger", "report", "interest"):
         if new.get(k) is not None:
             if k == "web":                              # 密码/端口/secret 不经此接口
                 continue
@@ -181,8 +181,9 @@ def api_dashboard():
 def api_topics():
     gid = request.args.get("group_id", type=int)
     status = request.args.get("status") or None
+    sort = request.args.get("sort") or "time"
     page = max(1, request.args.get("page", 1, type=int))
-    rows = db.list_topics(group_id=gid, status=status, limit=30, offset=(page - 1) * 30)
+    rows = db.list_topics(group_id=gid, status=status, limit=30, offset=(page - 1) * 30, sort=sort)
     for r in rows:
         r["participants"] = json.loads(r["participants"] or "[]")
         r["points"] = json.loads(r["points"] or "[]")
@@ -211,6 +212,40 @@ def api_topic_regen(tid):
     if result:
         return jsonify({"ok": True, "result": result})
     return jsonify({"error": "生成失败"}), 500
+
+
+@app.post("/api/topic/<int:tid>/score")
+@login_required
+def api_topic_score(tid):
+    """手动兴趣打分(重打)"""
+    t = db.get_topic(tid)
+    if not t:
+        return jsonify({"error": "not found"}), 404
+    info = summarizer.score_topic(tid)
+    if info:
+        return jsonify({"ok": True, "score": info["score"], "reason": info["reason"]})
+    cfg = config.get()["interest"]
+    if not cfg.get("enabled"):
+        return jsonify({"ok": False, "error": "兴趣打分未启用（先在设置里开启并填关键词）"}), 400
+    if not cfg.get("keywords"):
+        return jsonify({"ok": False, "error": "尚未配置兴趣关键词"}), 400
+    return jsonify({"ok": False, "error": "打分失败（LLM 未配置或网络异常）"}), 500
+
+
+@app.post("/api/topic/<int:tid>/dislike")
+@login_required
+def api_topic_dislike(tid):
+    """负向反馈: 标记不感兴趣 -> 分数置负, 列表沉底"""
+    t = db.get_topic(tid)
+    if not t:
+        return jsonify({"error": "not found"}), 404
+    cur = t.get("interest_score")
+    # 0分/未打分 -> -1(避免 -0.0), 其他 -> 取反
+    score = -(abs(float(cur)) if (cur is not None and float(cur) != 0) else 1.0)
+    reason = "👎 用户标记不感兴趣" + (f"（原分 {cur}）" if (cur is not None and float(cur) != 0) else "")
+    db.save_interest(tid, score, reason)
+    summarizer.log(f"[兴趣反馈] 话题#{tid} 标记不感兴趣 -> {score}分")
+    return jsonify({"ok": True, "score": score, "reason": reason})
 
 
 # ------------------------- 日志/运维 -------------------------

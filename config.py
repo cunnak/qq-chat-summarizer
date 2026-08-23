@@ -49,6 +49,11 @@ def default_config() -> dict:
             "cooldown": 60,              # 秒, 防刷
         },
         "report": {"enabled": False, "time": "23:00", "to_group": 0},
+        "interest": {
+            "enabled": False,          # 兴趣度打分开关
+            "keywords": [],            # 兴趣关键词(如 ["政策","房价","AI"])
+            "push_threshold": 0,       # 打分>=此值推送高兴趣话题到群, 0=不推送
+        },
         "groups": [],                    # [{group_id, enabled, summary_to, archive_to, style}]
     }
 
