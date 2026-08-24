@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """LLM 客户端: 三种模式(纯文本/文本+视觉辅助/单一多模态), OpenAI 兼容接口"""
+import base64
 import json
+import os
 import re
 import time
 
@@ -30,6 +32,66 @@ def _estimate_tokens(text: str) -> int:
     cn = len(re.findall(r"[\u4e00-\u9fff]", text or ""))
     other = len(text or "") - cn
     return int(cn + other / 4)
+
+
+# ------------------------- 图片本地下载 -> base64 -------------------------
+# 群图片 URL 带短时效签名, 公网模型服务商(如阿里云百炼)直接拉取会失败(400 Failed to
+# to download multimodal content)。因此改为: 本机先把图片下载成 base64 data URI 再发给模型。
+# 图片落盘到数据目录 img_tmp/, 每次总结结束(成功或失败)都会清理, 不留占用。
+_IMG_TMP_DIR = os.path.join(config.BASE_DIR, "img_tmp")
+_MAX_IMG_DOWNLOAD = 10          # 单次总结最多下载的图片数, 防请求过大/超时
+
+
+def _cleanup_img_tmp():
+    """清空本次使用的临时图片目录内容(不删目录本身)"""
+    try:
+        if os.path.isdir(_IMG_TMP_DIR):
+            for fn in os.listdir(_IMG_TMP_DIR):
+                try:
+                    os.remove(os.path.join(_IMG_TMP_DIR, fn))
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+
+def _img_ext(content_type: str) -> str:
+    ct = (content_type or "").lower()
+    if "png" in ct:
+        return "png"
+    if "gif" in ct:
+        return "gif"
+    if "webp" in ct:
+        return "webp"
+    if "bmp" in ct:
+        return "bmp"
+    return "jpg"
+
+
+def _download_image_as_data_uri(url: str, timeout: int = 15):
+    """下载图片并返回 (data_uri, local_path); 失败返回 (None, None)。"""
+    import requests
+    try:
+        r = requests.get(url, timeout=timeout, stream=True,
+                         headers={"User-Agent": "Mozilla/5.0",
+                                  "Referer": "https://qun.qq.com/"})
+        r.raise_for_status()
+        data = r.content
+        if not data:
+            return None, None
+        ct = (r.headers.get("Content-Type") or "image/jpeg").split(";")[0].strip() or "image/jpeg"
+        try:
+            os.makedirs(_IMG_TMP_DIR, exist_ok=True)
+            fname = f"img_{int(time.time()*1000)}_{abs(hash(url)) & 0xfffff}.{_img_ext(ct)}"
+            path = os.path.join(_IMG_TMP_DIR, fname)
+            with open(path, "wb") as f:
+                f.write(data)
+        except Exception:
+            path = None
+        b64 = base64.b64encode(data).decode("ascii")
+        return f"data:{ct};base64,{b64}", path
+    except Exception:
+        return None, None
 
 
 class MockLLM:
@@ -95,19 +157,28 @@ class OpenAICompatLLM:
 
     # ------------------------- 视觉辅助(dual 模式) -------------------------
     def describe_images(self, urls):
-        """把图片转成文字描述, 供纯文本主模型使用"""
+        """把图片转成文字描述, 供纯文本主模型使用(图片先本地下载转 base64)"""
         out = {}
-        for u in urls:
-            try:
-                content = self._chat(
-                    [{"role": "user", "content": [
-                        {"type": "image_url", "image_url": {"url": u}},
-                        {"type": "text", "text": "用一段不超过60字的话描述这张图片的关键信息(文字/数据/场景)。"}]}],
-                    model=self.vision_model, key=self.vision_key, base_url=self.vision_base_url,
-                    max_tokens=150, kind="vision")
-                out[u] = content.strip()[:80]
-            except Exception:
-                out[u] = ""            # 失败不阻断总结
+        try:
+            for i, u in enumerate(urls):
+                if i >= _MAX_IMG_DOWNLOAD:
+                    break
+                try:
+                    data_uri, _local = _download_image_as_data_uri(u)
+                    if not data_uri:
+                        out[u] = ""
+                        continue
+                    content = self._chat(
+                        [{"role": "user", "content": [
+                            {"type": "image_url", "image_url": {"url": data_uri}},
+                            {"type": "text", "text": "用一段不超过60字的话描述这张图片的关键信息(文字/数据/场景)。"}]}],
+                        model=self.vision_model, key=self.vision_key, base_url=self.vision_base_url,
+                        max_tokens=150, kind="vision")
+                    out[u] = content.strip()[:80]
+                except Exception:
+                    out[u] = ""            # 失败不阻断总结
+        finally:
+            _cleanup_img_tmp()             # 总结完清理临时图片
         return out
 
     # ------------------------- 总结 -------------------------
@@ -142,18 +213,24 @@ class OpenAICompatLLM:
             content = self._chat([{"role": "user", "content": prompt}],
                                  max_tokens=900, kind="summary", msgs=len(messages))
         elif self.mode == "multimodal" and image_urls:
-            # 单一多模态模型: 直接带图
+            # 单一多模态模型: 图片先本地下载转 base64 再带图(群图片URL公网模型拉不到)
             content_blocks = [{"type": "text", "text": prompt}]
             seen = set()
-            for u in image_urls:
-                if u not in seen:
+            try:
+                for u in image_urls:
+                    if u in seen or len(seen) >= _MAX_IMG_DOWNLOAD:
+                        continue
                     seen.add(u)
-                    content_blocks.append({"type": "image_url", "image_url": {"url": u}})
-            if len(content_blocks) > 1:
-                content_blocks.append({"type": "text",
-                                       "text": "以上图片是本话题中群友发送的，请把图片里的关键信息(如截图文字、图表数据)也纳入总结。"})
-            content = self._chat([{"role": "user", "content": content_blocks}],
-                                 max_tokens=900, kind="summary", msgs=len(messages))
+                    data_uri, _local = _download_image_as_data_uri(u)
+                    if data_uri:
+                        content_blocks.append({"type": "image_url", "image_url": {"url": data_uri}})
+                if len(content_blocks) > 1:
+                    content_blocks.append({"type": "text",
+                                           "text": "以上图片是本话题中群友发送的，请把图片里的关键信息(如截图文字、图表数据)也纳入总结。"})
+                content = self._chat([{"role": "user", "content": content_blocks}],
+                                     max_tokens=900, kind="summary", msgs=len(messages))
+            finally:
+                _cleanup_img_tmp()             # 总结完清理临时图片
         else:
             if image_urls:
                 prompt = prompt.replace("聊天记录:", "聊天记录(图片消息以[图片消息]标注):")

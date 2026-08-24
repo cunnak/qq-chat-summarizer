@@ -147,6 +147,9 @@ def fake_post(url, headers=None, json=None, timeout=None):
 
 
 llm_mod.requests = __import__("types")
+# v1.1.1: 图片改为本地下载->base64, 打桩避免真实 HTTP
+llm_mod._download_image_as_data_uri = lambda url, timeout=15: \
+    (f"data:image/jpeg;base64,{url.encode('hex') if False else 'dGVzdA=='}", None)
 client = llm_mod.OpenAICompatLLM({
     "mode": "dual", "api_key": "k", "base_url": "https://x/v1", "model": "text-m",
     "vision_model": "vis-m", "vision_api_key": "k2", "vision_base_url": "https://y/v1",
