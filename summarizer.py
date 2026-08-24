@@ -31,18 +31,22 @@ def log(msg: str):
 
 # ------------------------- 群配置 -------------------------
 def group_cfg(group_id):
-    """返回某群的生效配置(未配置的群用默认值, 默认启用)"""
+    """返回某群的生效配置。
+
+    注意: 未在控制台「监控群管理」里显式添加的群, 默认【不监听】
+    (enabled=False)。只有配置列表里存在且 enabled=True 的群才会
+    被留档、切分话题并触发总结——避免 bot 悄悄监听未配置的群。"""
     for g in config.get()["groups"]:
         if int(g["group_id"]) == int(group_id):
             return g
-    return {"group_id": group_id, "enabled": True,
+    return {"group_id": group_id, "enabled": False,
             "summary_to": group_id, "archive_to": 0, "style": "standard"}
 
 
 # ------------------------- 消息处理 -------------------------
 def on_message(group_id, user_id, nickname, msg_id, raw_type, text, image_urls, raw, ts):
     gc = group_cfg(group_id)
-    if not gc.get("enabled", True):
+    if not gc.get("enabled", False):
         return
     db.insert_message(group_id, user_id, nickname, msg_id, raw_type,
                       text, image_urls, raw, ts)

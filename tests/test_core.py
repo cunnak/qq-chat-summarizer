@@ -102,6 +102,21 @@ rows = db_mod.list_topics(group_id=999)
 assert rows[0]["status"] == "discarded"
 ok("不足min_msgs的话题被丢弃")
 
+# 未配置的群: 不监听、不落库、不总结 (v1.1.2 修复)
+before_msgs = db_mod.count_messages_since(0)
+before_sent = len(sent_text)
+for i, (uid, nick, txt) in enumerate([
+        (111, "张三", "未配置群的消息A"), (222, "李四", "未配置群的消息B"),
+        (111, "张三", "未配置群的消息C")]):
+    sum_mod.on_message(777, uid, nick, "m%d" % (T + 5000 + i), "text", txt, [], txt, T + 5000 + i)
+after_msgs = db_mod.count_messages_since(0)
+assert after_msgs == before_msgs, "未配置群的消息不应入库"
+assert len(sent_text) == before_sent, "未配置群不应触发任何发送"
+sum_mod.check_idle(now=T + 5000 + 3600)
+rows777 = db_mod.list_topics(group_id=777)
+assert not rows777, f"未配置群不应产生话题: {rows777}"
+ok("未配置群默认不监听(不入库/不建话题/不发消息)")
+
 # ---------------- 3. 手动触发权限/冷却 ----------------
 print("=== 3. 手动触发 ===")
 c = cfg_mod.load()
@@ -269,6 +284,9 @@ assert isinstance(llm_mod.get_client(), llm_mod.MockLLM)
 c = cfg_mod.load()
 assert "interest" in c and c["interest"]["enabled"] is False
 ok("默认配置含 interest 块")
+# v1.1.2: 第6部分重置了 config, 重新配置群 999(否则 on_message 不再监听未配置群)
+c["groups"] = [{"group_id": 999, "enabled": True, "summary_to": 999, "archive_to": 888, "style": "standard"}]
+cfg_mod.save(c)
 
 # MockLLM 启发式打分
 mock = llm_mod.MockLLM()
